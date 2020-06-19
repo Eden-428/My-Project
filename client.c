@@ -32,5 +32,5 @@ int main(){
      recv(sock, serveur_reponse, sizeof(serveur_reponse),0);
      printf("<< %s\n",serveur_reponse);
      close(socket);
-    return 0;
+     return 0;
 }

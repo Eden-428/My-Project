@@ -41,5 +41,5 @@ int main(){
 	  msg_du_client = send(accept_client, rien, sizeof(rien), 0);
 }
     close(sock);
-  return 0;
+   return 0;
 }
