@@ -1,36 +1,135 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <signal.h>
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <errno.h>
-#include <string.h>
+#include <pthread.h>
 
-int main(){
+#define LENGTH 2048
 
-   int sock = socket(AF_INET, SOCK_STREAM, 0);
-     struct sockaddr_in adresse_serveur;
-     adresse_serveur.sin_family = AF_INET;
-     adresse_serveur.sin_port = htons(9002);
-     adresse_serveur.sin_addr.s_addr = INADDR_ANY;
-   int connection_status = connect(sock, (struct sockaddr*) &adresse_serveur, sizeof(adresse_serveur));
-     printf("status: %d\n",connection_status);
-   if(connection_status == -1){
-        printf("Errreur de connection avec le socket\n\n");
-   }
-   if(connection_status == 0){
-        printf("... connecté! \n");
-        printf("Adresse du serveur: %s, port: %d\n",inet_ntoa(adresse_serveur.sin_addr),htons(9002));
-   }
-   char message[256];
-   char serveur_reponse[256];
-     printf("Msg: ");
-     scanf("%s",&message);
-     printf(">> %s\n",message);
-     send(sock, message, sizeof(message), 0);
-     recv(sock, serveur_reponse, sizeof(serveur_reponse),0);
-     printf("<< %s\n",serveur_reponse);
-     close(socket);
-     return 0;
+/* variables */
+volatile sig_atomic_t flag = 0;
+int sockfd = 0;
+char name[32];
+
+void str_overwrite_stdout() {
+  printf("%s", "> ");
+  fflush(stdout);
+}
+
+void str_trim_lf (char* arr, int length) {
+  int i;
+  for (i = 0; i < length; i++) {
+    if (arr[i] == '\n') {
+      arr[i] = '\0';
+      break;
+    }
+  }
+}
+
+void catch_ctrl_c_and_exit(int sig) {
+    flag = 1;
+}
+
+void send_msg_handler() {
+  char message[LENGTH] = {};
+	char buffer[LENGTH + 32] = {};
+
+  while(1) {
+  	str_overwrite_stdout();
+    fgets(message, LENGTH, stdin);
+    str_trim_lf(message, LENGTH);
+
+    if (strcmp(message, "quit") == 0) {
+			break;
+    } else {
+      sprintf(buffer, "%s: %s\n", name, message);
+      send(sockfd, buffer, strlen(buffer), 0);
+    }
+
+		bzero(message, LENGTH);
+    bzero(buffer, LENGTH + 32);
+  }
+  catch_ctrl_c_and_exit(2);
+}
+
+void recv_msg_handler() {
+	char message[LENGTH] = {};
+  while (1) {
+		int receive = recv(sockfd, message, LENGTH, 0);
+    if (receive > 0) {
+      printf("%s", message);
+      str_overwrite_stdout();
+    } else if (receive == 0) {
+			break;
+    } else {}
+  memset(message, 0, sizeof(message));
+  }
+}
+
+int main(int argc, char **argv){
+	if(argc != 2){
+		printf("Usage: %s <port>\n", argv[0]);
+		return EXIT_FAILURE;
+	}
+
+	char *ip = "127.0.0.1";
+	int port = atoi(argv[1]);
+
+	signal(SIGINT, catch_ctrl_c_and_exit);
+
+	printf("What's your name?: ");
+        fgets(name, 32, stdin);
+  	str_trim_lf(name, strlen(name));
+
+
+	if (strlen(name) > 32 || strlen(name) < 2){
+		printf("30<name<2\n");
+		return EXIT_FAILURE;
+	}
+
+	struct sockaddr_in server_addr;
+
+	/*Sock*/
+	sockfd = socket(AF_INET, SOCK_STREAM, 0);
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_addr.s_addr = inet_addr(ip);
+  server_addr.sin_port = htons(port);
+
+  int err = connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr));
+  if (err == -1) {
+		printf("ERROR: change your port or launch the server in first time\n");
+		return EXIT_FAILURE;
+	}
+	/*name*/
+	send(sockfd, name, 32, 0);
+
+	printf("<<< WELCOME, YOU ARE CONNECT! >>>\n");
+
+	pthread_t send_msg_thread;
+  if(pthread_create(&send_msg_thread, NULL, (void *) send_msg_handler, NULL) != 0){
+		printf("ERROR: pthread\n");
+    return EXIT_FAILURE;
+	}
+
+	pthread_t recv_msg_thread;
+  if(pthread_create(&recv_msg_thread, NULL, (void *) recv_msg_handler, NULL) != 0){
+		printf("ERROR: pthread\n");
+		return EXIT_FAILURE;
+	}
+
+	while (1){
+		if(flag){
+			printf("\nBye\n");
+			break;
+    }
+	}
+
+	close(sockfd);
+
+	return EXIT_SUCCESS;
 }
